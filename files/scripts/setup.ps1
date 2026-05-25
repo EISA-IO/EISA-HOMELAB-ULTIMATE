@@ -50,35 +50,6 @@ $RecommendedFile = Join-Path $ProjectRoot 'recommended_models.txt'
 # Make the console UTF-8 so the ASCII-art logo renders.
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
-# Maximize the host console window so the wizard has room to breathe.
-# Win32 ShowWindow(SW_MAXIMIZE = 3) on the current console window handle.
-# No-op on macOS/Linux; silently ignored if the host doesn't allow it
-# (some Windows Terminal configs treat the tab as a pseudo-console).
-function Maximize-Console {
-    $isWin = $true
-    if (Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) {
-        if (-not $IsWindows) { $isWin = $false }
-    }
-    if (-not $isWin) { return }
-    try {
-        if (-not ('EisaConsoleHelper' -as [type])) {
-            Add-Type -ErrorAction Stop -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class EisaConsoleHelper {
-    [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
-    [DllImport("user32.dll")]   public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-}
-'@
-        }
-        $hwnd = [EisaConsoleHelper]::GetConsoleWindow()
-        if ($hwnd -ne [IntPtr]::Zero) {
-            [void][EisaConsoleHelper]::ShowWindow($hwnd, 3)  # SW_MAXIMIZE
-        }
-    } catch {}
-}
-Maximize-Console
-
 # ---------------------------------------------------------------------------
 # Output helpers - green/minimal house style.
 # ---------------------------------------------------------------------------
