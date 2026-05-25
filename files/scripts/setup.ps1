@@ -649,6 +649,32 @@ function Test-Placeholder {
     return $Value -match '^__.*__$' -or $Value -match 'CHANGE_ME' -or $Value -match 'GENERATE_'
 }
 
+# True when .env already holds a real, filled-in configuration rather than
+# the .env.example placeholders. Lets the first-run wizard offer "use your
+# existing config" instead of re-walking every question. Fires for ANY
+# configured domain (not a specific one) or for a completed local-only setup.
+function Test-ConfiguredEnv {
+    param($EnvMap)
+    if (-not $EnvMap -or $EnvMap.Count -eq 0) { return $false }
+    # Signal 1: a real domain or Cloudflare tunnel token is set - an online
+    # hosting config for ANY domain already exists. Test-Placeholder treats a
+    # blank/local-only value as "not set", so pure local installs fall through.
+    if (-not (Test-Placeholder $EnvMap['DOMAIN']))                  { return $true }
+    if (-not (Test-Placeholder $EnvMap['CLOUDFLARE_TUNNEL_TOKEN'])) { return $true }
+    # Signal 2: every auto-generated secret is filled in - a completed setup,
+    # even in local-only mode where there is no domain.
+    $required = @(
+        'POSTGRES_PASSWORD','N8N_ENCRYPTION_KEY','N8N_USER_MANAGEMENT_JWT_SECRET',
+        'DB_PASSWORD','SONARR_API_KEY','RADARR_API_KEY','PROWLARR_API_KEY',
+        'SEERR_API_KEY','HERMES_API_KEY'
+    )
+    foreach ($k in $required) {
+        if (-not $EnvMap.Contains($k)) { return $false }
+        if (Test-Placeholder $EnvMap[$k]) { return $false }
+    }
+    return $true
+}
+
 # Normalise Windows paths to docker-compose-friendly form.
 function Format-Path {
     param([string]$Path)
@@ -1427,6 +1453,42 @@ function Invoke-Wizard {
         if (-not $envMap.Contains($k)) { $envMap[$k] = $exampleMap[$k] }
     }
 
+    # ---- Step 0b: existing configuration detected? ------------------------
+    # A populated .env (real secrets or a configured domain, not the
+    # .env.example placeholders) means this clone already has a working
+    # config. Offer to keep it and just pick what to start, instead of
+    # re-asking everything (which could clobber the saved DOMAIN / tunnel
+    # token). -Reconfigure forces the full wizard.
+    $useExisting = $false
+    if ((Test-ConfiguredEnv $envMap) -and -not $Reconfigure) {
+        Step 'Existing configuration detected' 'This clone already has a filled-in .env (domain, secrets, media paths). You can keep it and just pick what to start, or reconfigure everything from scratch.'
+        $hostLine = if (-not (Test-Placeholder $envMap['CLOUDFLARE_TUNNEL_TOKEN'])) {
+            "ONLINE via $($envMap['DOMAIN'])"
+        } else { 'LOCAL only (no domain / tunnel)' }
+        Dim "    Hosting       : $hostLine"
+        Dim "    Heimdall tiles: $(if ($envMap['HEIMDALL_TILE_DOMAIN']) { 'https://*.' + $envMap['HEIMDALL_TILE_DOMAIN'] } else { 'http://*.localhost' })"
+        Dim "    Media folders : $($envMap['MOVIES_PATH']), $($envMap['TV_SHOWS_PATH']), $($envMap['MUSIC_PATH']), ..."
+        Dim "    Secrets       : present (databases, n8n, *arr API keys, Hermes)"
+        G ''
+        $cfgChoice = Ask-Choice @(
+            [pscustomobject]@{
+                Label = 'Use my existing configuration (recommended)'
+                Hint  = @(
+                    'Keep the current domain, secrets, and media paths as-is.'
+                    'You will only pick which apps to start next - no other questions.'
+                )
+            }
+            [pscustomobject]@{
+                Label = 'Reconfigure from scratch'
+                Hint  = @(
+                    'Walk through every question again (hosting, paths, GPU).'
+                    'Existing non-placeholder secrets are still preserved.'
+                )
+            }
+        )
+        $useExisting = ($cfgChoice -eq 1)
+    }
+
     # ---- Step 1: stack ----------------------------------------------------
     Step 'Step 1 - Pick what to install' 'Each option starts a different set of containers. You can re-run the first-run launcher to change later.'
     Dim '  Always installed (the core):'
@@ -1539,6 +1601,29 @@ function Invoke-Wizard {
     $hasMedia = ($profiles -contains 'media') -or ($profiles -contains 'media-stream') -or ($profiles -contains 'media-request') -or ($profiles -contains 'productivity') -or `
                 ($customServices | Where-Object { $_ -in $mediaServices }).Count -gt 0
     Ok "Stack: $($stack.ToUpper())$(if ($customServices.Count -gt 0) { " (trimmed to $($customServices.Count) services)" })"
+
+    # ---- Use existing config: stack picked, skip the rest of the wizard --
+    # Everything below (hosting, Heimdall tiles, media paths, secrets) is
+    # taken from the current .env untouched. GPU mode isn't stored in .env,
+    # so auto-detect it like Start Stack does rather than prompt.
+    if ($useExisting) {
+        $useTunnel = -not (Test-Placeholder $envMap['CLOUDFLARE_TUNNEL_TOKEN'])
+        $gpuMode   = if ($hasAi) { Get-OllamaGpuMode -OS $script:OS } else { 'cpu' }
+        Ok ("Access (kept from .env): " + ($(if ($useTunnel) { "ONLINE ($($envMap['DOMAIN']))" } else { 'LOCAL only' })))
+        if ($hasAi) { Ok "GPU mode: $($gpuMode.ToUpper()) (auto-detected)" }
+        # Top up only placeholder secrets; real values are left as they are.
+        if (Ensure-EnvSecrets -EnvMap $envMap) { Write-EnvFile $EnvFile $envMap }
+        return [pscustomobject]@{
+            Env            = $envMap
+            Stack          = $stack
+            Profiles       = $profiles
+            CustomServices = $customServices
+            UseTunnel      = $useTunnel
+            HasAi          = $hasAi
+            HasMedia       = $hasMedia
+            GpuMode        = $gpuMode
+        }
+    }
 
     # ---- Step 2: access mode ---------------------------------------------
     Step 'Step 2 - Hosting: local or online?' 'This decides whether your stack lives only on your LAN, or is reachable from anywhere on the internet through your own domain.'
