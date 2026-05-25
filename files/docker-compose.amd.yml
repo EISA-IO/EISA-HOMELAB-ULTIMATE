@@ -25,7 +25,7 @@ services:
     # Ollama's :rocm tag is a rolling stable. The base compose pins :0.23.2;
     # keep the AMD variant on the matching version where possible (Ollama
     # publishes :0.23.2-rocm). Bump in lockstep with the base ollama image.
-    image: ollama/ollama:0.23.2-rocm
+    image: ollama/ollama:0.24.0-rocm
     devices:
       - /dev/kfd
       - /dev/dri
