@@ -240,7 +240,7 @@ function Get-StackEntries {
         [pscustomobject]@{ Bundle='ai'; Label='local-deep-research  (AI research assistant)';                   Services=@('local-deep-research') }
         [pscustomobject]@{ Bundle='ai'; Label='vane                 (Perplexity-style answer engine)';          Services=@('vane') }
         [pscustomobject]@{ Bundle='ai'; Label='n8n                  (workflow automation; bundles postgres + qdrant)'; Services=@('n8n','n8n-postgres','qdrant') }
-        [pscustomobject]@{ Bundle='ai'; Label='hermes               (self-improving agent + web workspace UI; bundles agent + workspace)'; Services=@('hermes-agent','hermes-workspace') }
+        [pscustomobject]@{ Bundle='ai'; Label='hermes               (self-improving agent + dashboard UI)'; Services=@('hermes-agent') }
         # MEDIA STREAMING - what your friends/family will actually watch
         [pscustomobject]@{ Bundle='media-streaming'; Label='jellyfin             (movie + TV streaming)';                    Services=@('jellyfin') }
         [pscustomobject]@{ Bundle='media-streaming'; Label='navidrome            (music streaming)';                         Services=@('navidrome') }
@@ -1565,7 +1565,7 @@ function Invoke-Wizard {
     }
 
     # Compatibility flags surfaced in the summary / state blob.
-    $aiServices    = @('ollama','open-webui','searxng','local-deep-research','vane','n8n','n8n-postgres','qdrant','hermes-agent','hermes-workspace')
+    $aiServices    = @('ollama','open-webui','searxng','local-deep-research','vane','n8n','n8n-postgres','qdrant','hermes-agent')
     $mediaServices = @('jellyfin','navidrome','immich-server','immich-machine-learning','immich-redis','immich-postgres','filebrowser','omni-tools','tor-browser','seerr','sonarr','radarr','prowlarr','qbittorrent')
     $hasAi    = ($profiles -contains 'ai') -or `
                 ($customServices | Where-Object { $_ -in $aiServices }).Count -gt 0
@@ -1934,7 +1934,7 @@ http://research.localhost {
 }
 
 http://hermes.localhost {
-    reverse_proxy hermes-workspace:3000
+    reverse_proxy hermes-agent:9119
 }
 
 # AI host services (no docker container in the standard compose - these
@@ -3909,7 +3909,7 @@ function Show-Summary {
         G ''
         Dim '  AI'
         G '    Open WebUI (chat)       http://chat.localhost'
-        G '    Hermes Workspace        http://hermes.localhost   (agent + memory; auto-wired to Ollama)'
+        G '    Hermes Agent            http://hermes.localhost   (dashboard; auto-wired to Ollama)'
         G '    SearXNG (search)        http://search.localhost'
         G '    Local Deep Research     http://research.localhost'
         G '    Vane (AI search)        http://smartsearch.localhost'
@@ -3931,7 +3931,7 @@ function Show-Summary {
         }
         if ($Result.HasAi) {
             G "    Open WebUI https://chat.$d"
-            G "    Hermes WS  https://hermes.$d"
+            G "    Hermes     https://hermes.$d"
             G "    SearXNG    https://search.$d"
             G "    n8n        https://n8n.$d"
         }
@@ -3970,7 +3970,7 @@ function Show-Summary {
         }
         if ($Result.HasAi) {
             Dim "    chat.$d        ->  HTTP  caddy:80   Open WebUI"
-            Dim "    hermes.$d      ->  HTTP  caddy:80   Hermes Workspace"
+            Dim "    hermes.$d      ->  HTTP  caddy:80   Hermes Agent (dashboard)"
             Dim "    search.$d      ->  HTTP  caddy:80   SearXNG"
             Dim "    n8n.$d         ->  HTTP  caddy:80   n8n workflows"
             Dim "    smartsearch.$d ->  HTTP  caddy:80   Vane AI engine"
@@ -4192,7 +4192,7 @@ if ($StartOnly) {
     $useTunnel = [bool]$stateBlob.useTunnel
     $gpuMode   = [string]$stateBlob.gpuMode
     if ($customSvc -and $customSvc.Count -gt 0) {
-        $hasAi    = ($customSvc | Where-Object { $_ -in 'ollama','open-webui','searxng','local-deep-research','vane','n8n','n8n-postgres','qdrant','hermes-agent','hermes-workspace' }).Count -gt 0
+        $hasAi    = ($customSvc | Where-Object { $_ -in 'ollama','open-webui','searxng','local-deep-research','vane','n8n','n8n-postgres','qdrant','hermes-agent' }).Count -gt 0
         $hasMedia = ($customSvc | Where-Object { $_ -in 'jellyfin','navidrome','immich-server','immich-machine-learning','immich-redis','immich-postgres','filebrowser','omni-tools','tor-browser','seerr','sonarr','radarr','prowlarr','qbittorrent' }).Count -gt 0
     } else {
         $hasAi    = $profiles -contains 'ai'

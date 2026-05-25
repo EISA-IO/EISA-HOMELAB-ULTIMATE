@@ -29,7 +29,7 @@ set "LISTTMP=%TEMP%\ollama_menu_%RANDOM%_%RANDOM%.tmp"
 set "IDXTMP=%TEMP%\ollama_idx_%RANDOM%_%RANDOM%.tmp"
 
 :: Hoisted to top so both Stop Stack and List Stack can iterate the same list.
-set "EISA=cloudflared heimdall-media Caddy Authelia navidrome jellyfin filebrowser omni-tools n8n qdrant ollama open-webui searxng local-deep-research vane hermes-agent hermes-workspace Portainer tor-browser immich-server immich-machine-learning immich-redis immich-postgres seerr sonarr radarr prowlarr qbittorrent"
+set "EISA=cloudflared heimdall-media Caddy Authelia navidrome jellyfin filebrowser omni-tools n8n qdrant ollama open-webui searxng local-deep-research vane hermes-agent Portainer tor-browser immich-server immich-machine-learning immich-redis immich-postgres seerr sonarr radarr prowlarr qbittorrent"
 
 :: Postgres bind-mount paths the wizard uses by default. The "reset databases"
 :: recovery in Stop Stack only ever touches these two and only with explicit
