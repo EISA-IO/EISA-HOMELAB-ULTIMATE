@@ -1,0 +1,10 @@
+{
+  "name": "ollama-auth",
+  "version": "1.0.0",
+  "description": "Bearer-token validator sidecar for the homelab Ollama vhost.",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

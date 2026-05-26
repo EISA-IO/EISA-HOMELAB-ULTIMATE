@@ -154,6 +154,60 @@ http://hermes.${DOMAIN} {
 	reverse_proxy hermes-agent:9119
 }
 
+# -----------------------------------------------------------------------------
+# OLLAMA API - public, machine-callable. NOT behind Authelia: API clients
+# (e.g. cloud apps) can't follow the SSO redirect. Auth happens at the
+# ollama-auth sidecar against SHA-256-hashed Bearer tokens declared either
+# in files/.env (OLLAMA_TOKEN_* / OLLAMA_TOKENS) or files/scripts/ollama-token.ps1.
+#
+# Flow:
+#   client (Authorization: Bearer XXX)
+#     -> Cloudflare Tunnel (TLS terminated)
+#     -> Caddy (forward_auth to ollama-auth)
+#     -> if 200, reverse_proxy to ollama:11434
+#
+# ollama-auth strips its own headers; Ollama doesn't validate any auth
+# header (it sees the raw API call as if it were local), so the model
+# surface is fully open ONCE the gate passes. Keep tokens scoped per
+# tenant and rotate when staff turn over.
+# -----------------------------------------------------------------------------
+(ollama_bearer_auth) {
+	# Don't copy Authelia-style identity headers; ollama doesn't need them.
+	forward_auth ollama-auth:8080 {
+		uri /
+		copy_headers X-Token-Label
+	}
+}
+
+http://ollama.${DOMAIN} {
+	import ollama_bearer_auth
+	reverse_proxy ollama:11434 {
+		# Long timeouts: cold-start model load + long completions
+		# (e.g. /api/chat with stream=false on a big model) can run
+		# well past Caddy's default 30s.
+		transport http {
+			read_timeout    10m
+			write_timeout   10m
+			dial_timeout    10s
+		}
+	}
+}
+
+# Localhost bypass: the token requirement applies only to remote (tunnel)
+# traffic. *.localhost resolves to 127.0.0.1 by RFC 6761, which is the same
+# machine Caddy listens on - nothing on the LAN or the internet can reach
+# this vhost. So we expose ollama:11434 with no auth here for local CLI
+# scripts, IDE plugins, n8n nodes running on the host, etc.
+http://ollama.localhost {
+	reverse_proxy ollama:11434 {
+		transport http {
+			read_timeout    10m
+			write_timeout   10m
+			dial_timeout    10s
+		}
+	}
+}
+
 # =============================================================================
 # MEDIA
 # =============================================================================

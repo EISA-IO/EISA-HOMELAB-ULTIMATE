@@ -232,6 +232,15 @@ services:
 
   # ========================
   # OLLAMA (LLM BACKEND)
+  #
+  # Host-port mapping is bound to 127.0.0.1 only so the unauthenticated
+  # Ollama API never sits on a LAN/WAN interface. External access goes
+  # through Caddy -> ollama-auth (Bearer token) -> ollama:11434, exposed
+  # at https://ollama.${DOMAIN}. Other containers on the `caddy` network
+  # still reach the API directly at http://ollama:11434 (intra-stack trust).
+  # The localhost-only Caddy vhost (http://ollama.localhost) also bypasses
+  # auth - *.localhost resolves to 127.0.0.1 by RFC 6761 so the route is
+  # not reachable from anywhere off the host.
   # ========================
   ollama:
     env_file: .env
@@ -242,7 +251,7 @@ services:
     volumes:
       - ollama:/root/.ollama
     ports:
-      - 11434:11434
+      - 127.0.0.1:11434:11434
     tty: true
     restart: always
     networks:
@@ -252,6 +261,52 @@ services:
     #   docker-compose.amd.yml     -> swaps to ollama:rocm + /dev/kfd, /dev/dri
     # With no override, this runs CPU-only (works everywhere, including
     # Apple Silicon, AMD without ROCm, plain Intel, etc.).
+    profiles: [ai]
+
+  # ========================
+  # OLLAMA-AUTH (Bearer-token validator)
+  #
+  # Validates Authorization: Bearer <token> against two allow-lists, in order:
+  #   1. Env-declared tokens (plaintext in .env, hashed in memory at startup):
+  #        OLLAMA_TOKEN_EXECUTIVE_BRIEF=<token>   # per-tenant labelled vars
+  #        OLLAMA_TOKEN_DARKO_HOMELAB=<token>
+  #        OLLAMA_TOKEN_EISA_HOMELAB=<token>
+  #        OLLAMA_TOKENS=tok1,tok2                # bare comma-separated list
+  #      Change them in .env then `docker compose restart ollama-auth`.
+  #   2. Hashed file at /tokens/tokens.json - issued/rotated via
+  #      files/scripts/ollama-token.ps1. Hot-reloads within ~5s.
+  #
+  # Only the public `ollama.${DOMAIN}` route hits this; the localhost-only
+  # vhost (`ollama.localhost`) and intra-network `ollama:11434` bypass it.
+  # See files/ollama-auth/server.js for the full security model.
+  # ========================
+  ollama-auth:
+    build:
+      context: ./ollama-auth
+      dockerfile: Dockerfile
+    image: eisa-homelab/ollama-auth:1.0.0
+    # Locally-built image - this tag exists only on this host, not in any
+    # registry. Without `pull_policy: build`, `docker compose pull` would
+    # try to pull it and fail with "repository does not exist". `build`
+    # tells Compose to skip the pull and rebuild from ./ollama-auth instead.
+    pull_policy: build
+    container_name: ollama-auth
+    restart: always
+    env_file: .env
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    volumes:
+      # Auth rules (hashed tokens) - read-only.
+      - ${PERSISTENT_STORAGE}/do-not-delete/ollama-auth:/tokens:ro
+      # Runtime telemetry (last-used timestamps) - writable.
+      - ollama_auth_runtime:/tokens-runtime
+    networks:
+      - caddy
     profiles: [ai]
 
   # ========================
@@ -712,6 +767,7 @@ services:
 
 volumes:
   ollama:
+  ollama_auth_runtime:
   open-webui:
   jellyfin_cache:
   filebrowser_database:

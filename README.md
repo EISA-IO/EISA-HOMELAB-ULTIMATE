@@ -199,6 +199,67 @@ The wizard auto-installs two starter models so you're not staring at an empty ch
 
 ---
 
+## 🌐 Remote Ollama API (Bearer-token gated)
+
+Tunnel-mode publishes the in-stack Ollama at **`https://ollama.${DOMAIN}`** (e.g. `https://ollama.eisa.io`), gated by a Bearer token. Use this for cloud apps (Cloud Run, Vercel, etc.) that need your homelab GPU without bouncing through Open WebUI.
+
+**Token requirement applies only to remote traffic.** Local access bypasses the gate:
+- `http://localhost:11434` (host-loopback port mapping)
+- `http://ollama.localhost` (Caddy vhost — *.localhost resolves to 127.0.0.1 per RFC 6761)
+- `http://ollama:11434` (intra-docker network, e.g. Open WebUI, n8n)
+
+Only `https://ollama.${DOMAIN}` (arriving via Cloudflare Tunnel) hits the auth sidecar.
+
+**How it's protected**
+- Cloudflare Tunnel terminates TLS — no router ports opened.
+- Caddy forwards every public request to the `ollama-auth` sidecar (`files/ollama-auth/server.js`, runs read-only / no-new-privileges / cap-drop ALL).
+- The sidecar SHA-256-hashes the supplied Bearer token and constant-time-compares it against the allow-list.
+- The host port `11434` is bound to `127.0.0.1` — Ollama itself is never on a LAN/WAN interface.
+
+**Issuing a token — two paths, pick whichever fits**
+
+**A. Drop it in `.env`** (lowest friction, plaintext at rest, one restart):
+
+```env
+# files/.env
+OLLAMA_TOKEN_EXECUTIVE_BRIEF=<your-long-random-string>
+OLLAMA_TOKEN_DARKO_HOMELAB=<another-long-random-string>
+OLLAMA_TOKEN_EISA_HOMELAB=<another-long-random-string>
+# or a bare comma-separated list with no labels:
+OLLAMA_TOKENS=tok1,tok2
+```
+
+```pwsh
+docker compose restart ollama-auth
+```
+
+The `OLLAMA_TOKEN_<LABEL>` suffix becomes the token's log label. Plaintext sits in `.env` (already a private host file); the sidecar hashes them in memory at startup and never logs the value.
+
+**B. Use the issuer CLI** (hashed at rest, hot-reload, audit-friendly):
+
+```pwsh
+pwsh files/scripts/ollama-token.ps1 issue executive-brief-prod
+#   -> prints the plaintext ONCE - save it then. Hashes are persisted.
+#   -> takes effect within ~5s (the sidecar reloads on mtime).
+```
+
+```pwsh
+pwsh files/scripts/ollama-token.ps1 list
+pwsh files/scripts/ollama-token.ps1 revoke <id-or-label>
+pwsh files/scripts/ollama-token.ps1 rotate executive-brief-prod
+pwsh files/scripts/ollama-token.ps1 issue  executive-brief-prod -Expires 2026-12-31
+```
+
+**Smoke test**
+
+```sh
+curl -H "Authorization: Bearer <token>" https://ollama.eisa.io/api/tags
+```
+
+A wrong / missing token returns `401 unauthorized`. A good one passes through to Ollama's normal JSON API.
+
+---
+
 ## 🔒 Security
 
 - Real `.env`, `users_database.yml`, and rendered configs (`Caddyfile`, `configuration.yml`, `settings.yml`) are gitignored - they contain tokens, secrets, encryption keys, and password hashes. Never commit them.

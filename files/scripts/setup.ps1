@@ -1937,6 +1937,13 @@ http://hermes.localhost {
     reverse_proxy hermes-agent:9119
 }
 
+# Ollama API (LOCAL: no auth - LAN trust assumed). For the tunnel route
+# (ollama.<DOMAIN>) Caddy forwards through ollama-auth and requires a
+# Bearer token; see Caddyfile.tmpl.
+http://ollama.localhost {
+    reverse_proxy ollama:11434
+}
+
 # AI host services (no docker container in the standard compose - these
 # routes 502 until you run image/video/voice natively on the host).
 http://image.localhost {
@@ -2062,6 +2069,23 @@ function Render-Templates {
     if (-not (Test-Path $usersFile) -and (Test-Path $usersExample)) {
         Copy-Item $usersExample $usersFile
     }
+
+    # Ollama auth store: the sidecar mounts /tokens read-only. The directory
+    # and an empty tokens.json must exist before the container starts, or
+    # the bind mount auto-creates a directory at that path on Windows
+    # (same gotcha as Repair-BindPaths). Tokens are issued/rotated later
+    # via files/scripts/ollama-token.ps1 - this just seeds an empty store.
+    $ollamaAuthDir  = Join-Path $ProjectRoot 'persistent-storage/do-not-delete/ollama-auth'
+    $ollamaAuthFile = Join-Path $ollamaAuthDir 'tokens.json'
+    if (-not (Test-Path $ollamaAuthDir)) {
+        New-Item -ItemType Directory -Force -Path $ollamaAuthDir | Out-Null
+    }
+    if (Test-Path $ollamaAuthFile -PathType Container) {
+        Remove-Item $ollamaAuthFile -Recurse -Force
+    }
+    if (-not (Test-Path $ollamaAuthFile)) {
+        Set-Content -Path $ollamaAuthFile -Value (@{ tokens = @() } | ConvertTo-Json -Depth 4) -Encoding UTF8
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -2077,6 +2101,7 @@ function Repair-BindPaths {
         (Join-Path $ProjectRoot 'persistent-storage/do-not-delete/authelia/users_database.yml')
         (Join-Path $ProjectRoot 'persistent-storage/do-not-delete/searxng/settings.yml')
         (Join-Path $ProjectRoot 'persistent-storage/do-not-delete/filebrowser/settings.json')
+        (Join-Path $ProjectRoot 'persistent-storage/do-not-delete/ollama-auth/tokens.json')
     )
     foreach ($p in $bindFiles) {
         if (Test-Path $p -PathType Container) {
